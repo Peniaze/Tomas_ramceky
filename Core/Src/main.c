@@ -45,6 +45,41 @@ typedef enum
 #define LONG_CLICK 2
 #define SHORT_CLICK 1
 
+// Segment display definitions
+#define DIG1_PIN GPIO_PIN_7
+#define DIG2_PIN GPIO_PIN_8
+#define DIG3_PIN GPIO_PIN_0
+#define DIG4_PIN GPIO_PIN_1
+#define DIG5_PIN GPIO_PIN_6
+
+#define DIG1_PORT GPIOA
+#define DIG2_PORT GPIOA
+#define DIG3_PORT GPIOC
+#define DIG4_PORT GPIOC
+#define DIG5_PORT GPIOB
+
+#define ASEG_PIN GPIO_PIN_0
+#define BSEG_PIN GPIO_PIN_1
+#define CSEG_PIN GPIO_PIN_11
+#define DSEG_PIN GPIO_PIN_12
+#define ESEG_PIN GPIO_PIN_4
+#define FSEG_PIN GPIO_PIN_5
+#define GSEG_PIN GPIO_PIN_6
+
+#define SEGMENT_PORT GPIOA
+
+
+#define LIGHT_0 (ASEG_PIN | BSEG_PIN | CSEG_PIN | DSEG_PIN | ESEG_PIN | FSEG_PIN)
+#define LIGHT_1 (BSEG_PIN | CSEG_PIN)
+#define LIGHT_2 (ASEG_PIN | BSEG_PIN | DSEG_PIN | ESEG_PIN | GSEG_PIN)
+#define LIGHT_3 (ASEG_PIN | BSEG_PIN | CSEG_PIN | DSEG_PIN | GSEG_PIN)
+#define LIGHT_4 (BSEG_PIN | CSEG_PIN | FSEG_PIN | GSEG_PIN)
+#define LIGHT_5 (ASEG_PIN | CSEG_PIN | DSEG_PIN | FSEG_PIN | GSEG_PIN)
+#define LIGHT_6 (ASEG_PIN | CSEG_PIN | DSEG_PIN | ESEG_PIN | FSEG_PIN | GSEG_PIN)
+#define LIGHT_7 (ASEG_PIN | BSEG_PIN | CSEG_PIN)
+#define LIGHT_8 (ASEG_PIN | BSEG_PIN | CSEG_PIN | DSEG_PIN | ESEG_PIN | FSEG_PIN | GSEG_PIN)
+#define LIGHT_9 (ASEG_PIN | BSEG_PIN | CSEG_PIN | DSEG_PIN | FSEG_PIN | GSEG_PIN)
+
 //#define clk40khz
 #define debug_RTC
 #define debug_disp
@@ -62,6 +97,8 @@ RTC_HandleTypeDef hrtc;
 
 TIM_HandleTypeDef htim2;
 
+UART_HandleTypeDef huart2;
+
 /* USER CODE BEGIN PV */
 
 /* USER CODE END PV */
@@ -71,6 +108,7 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_RTC_Init(void);
 static void MX_TIM2_Init(void);
+static void MX_USART2_UART_Init(void);
 /* USER CODE BEGIN PFP */
 void HAL_TIM_OC_DelayElapsedCallback(TIM_HandleTypeDef *htim);
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim);
@@ -210,32 +248,35 @@ static void light_digit(uint16_t digit, uint16_t num)
 	// Pins are remapped to PC0, PC1
 	#ifdef hardware_debugger
 	// Turn off all digits
-	HAL_GPIO_WritePin(GPIOB, GPIO_PIN_6, 1);
-	HAL_GPIO_WritePin(GPIOA, GPIO_PIN_7 | GPIO_PIN_8 | GPIO_PIN_13 | GPIO_PIN_14, 1);
+	HAL_GPIO_WritePin(DIG1_PORT, DIG1_PIN, 1);
+	HAL_GPIO_WritePin(DIG2_PORT, DIG2_PIN, 1);
+	HAL_GPIO_WritePin(DIG3_PORT, DIG3_PIN, 1);
+	HAL_GPIO_WritePin(DIG4_PORT, DIG4_PIN, 1);
+	HAL_GPIO_WritePin(DIG5_PORT, DIG5_PIN, 1);
 	switch (digit)
 	{
-	case 1: HAL_GPIO_WritePin(GPIOA, GPIO_PIN_7, 0); break;
-	case 2: HAL_GPIO_WritePin(GPIOA, GPIO_PIN_8, 0); break;
-	case 3: HAL_GPIO_WritePin(GPIOA, GPIO_PIN_13, 0); break;
-	case 4: HAL_GPIO_WritePin(GPIOA, GPIO_PIN_14, 0); break;
-	default: HAL_GPIO_WritePin(GPIOB, GPIO_PIN_6, 0); break;
+		case 1: HAL_GPIO_WritePin(DIG1_PORT, DIG1_PIN, 0); break;
+		case 2: HAL_GPIO_WritePin(DIG2_PORT, DIG2_PIN, 0); break;
+		case 3: HAL_GPIO_WritePin(DIG3_PORT, DIG3_PIN, 0); break;
+		case 4: HAL_GPIO_WritePin(DIG4_PORT, DIG4_PIN, 0); break;
+		default: HAL_GPIO_WritePin(DIG5_PORT, DIG5_PIN, 0); break;
 	}
-	HAL_GPIO_WritePin(GPIOA, 0b11110011, 0);
-	HAL_GPIO_WritePin(GPIOC, 0b11, 0);
+	// Turn off all segments
+	HAL_GPIO_WritePin(SEGMENT_PORT, LIGHT_8, 0);
 	switch (num)
 	{
-	case 0:		HAL_GPIO_WritePin(GPIOA, 0b11111, 1); HAL_GPIO_WritePin(GPIOC, 0b10, 1); break;
-	case 1:		HAL_GPIO_WritePin(GPIOA, 0b00010, 1); HAL_GPIO_WritePin(GPIOC, 0b10, 1); break;
-	case 2:		HAL_GPIO_WritePin(GPIOA, 0b10101, 1); HAL_GPIO_WritePin(GPIOC, 0b11, 1); break;
-	case 3:		HAL_GPIO_WritePin(GPIOA, 0b00111, 1); HAL_GPIO_WritePin(GPIOC, 0b11, 1); break;
-	case 4:		HAL_GPIO_WritePin(GPIOA, 0b01010, 1); HAL_GPIO_WritePin(GPIOC, 0b11, 1); break;
-	case 5:		HAL_GPIO_WritePin(GPIOA, 0b01111, 1); HAL_GPIO_WritePin(GPIOC, 0b01, 1); break;
-	case 6:		HAL_GPIO_WritePin(GPIOA, 0b11111, 1); HAL_GPIO_WritePin(GPIOC, 0b01, 1); break;
-	case 7:		HAL_GPIO_WritePin(GPIOA, 0b00110, 1); HAL_GPIO_WritePin(GPIOC, 0b10, 1); break;
-	case 8:		HAL_GPIO_WritePin(GPIOA, 0b11111, 1); HAL_GPIO_WritePin(GPIOC, 0b11, 1); break;
-	case 9:		HAL_GPIO_WritePin(GPIOA, 0b01111, 1); HAL_GPIO_WritePin(GPIOC, 0b11, 1); break;
-	case 10:	HAL_GPIO_WritePin(GPIOA, 0b00000, 1); HAL_GPIO_WritePin(GPIOC, 0b00, 1); break;
-	default:	HAL_GPIO_WritePin(GPIOA, 0b11111, 1); HAL_GPIO_WritePin(GPIOC, 0b10, 1); break;
+		case 0:		HAL_GPIO_WritePin(SEGMENT_PORT, LIGHT_0, 1); break;
+		case 1:		HAL_GPIO_WritePin(SEGMENT_PORT, LIGHT_1, 1); break;
+		case 2:		HAL_GPIO_WritePin(SEGMENT_PORT, LIGHT_2, 1); break;
+		case 3:		HAL_GPIO_WritePin(SEGMENT_PORT, LIGHT_3, 1); break;
+		case 4:		HAL_GPIO_WritePin(SEGMENT_PORT, LIGHT_4, 1); break;
+		case 5:		HAL_GPIO_WritePin(SEGMENT_PORT, LIGHT_5, 1); break;
+		case 6:		HAL_GPIO_WritePin(SEGMENT_PORT, LIGHT_6, 1); break;
+		case 7:		HAL_GPIO_WritePin(SEGMENT_PORT, LIGHT_7, 1); break;
+		case 8:		HAL_GPIO_WritePin(SEGMENT_PORT, LIGHT_8, 1); break;
+		case 9:		HAL_GPIO_WritePin(SEGMENT_PORT, LIGHT_9, 1); break;
+		case 10:	HAL_GPIO_WritePin(SEGMENT_PORT, 0, 1); break;
+		default:	HAL_GPIO_WritePin(SEGMENT_PORT, LIGHT_0, 1); break;
 	}
 	#else
 
@@ -301,6 +342,7 @@ int main(void)
   MX_GPIO_Init();
   MX_RTC_Init();
   MX_TIM2_Init();
+  MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
 	// HAL_NVIC_EnableIRQ(TIM2_IRQn);
 	TIM2_INTERRUPT_ENABLE(1);
@@ -329,7 +371,7 @@ int main(void)
 	{
 		for (int i = 0; i < 5; i++)
 		{
-			light_digit(i, i);
+			light_digit(i+1, i+5);
 			HAL_Delay(1000);
 		}
 	}
@@ -713,6 +755,41 @@ static void MX_TIM2_Init(void)
 }
 
 /**
+  * @brief USART2 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_USART2_UART_Init(void)
+{
+
+  /* USER CODE BEGIN USART2_Init 0 */
+
+  /* USER CODE END USART2_Init 0 */
+
+  /* USER CODE BEGIN USART2_Init 1 */
+
+  /* USER CODE END USART2_Init 1 */
+  huart2.Instance = USART2;
+  huart2.Init.BaudRate = 38400;
+  huart2.Init.WordLength = UART_WORDLENGTH_8B;
+  huart2.Init.StopBits = UART_STOPBITS_1;
+  huart2.Init.Parity = UART_PARITY_NONE;
+  huart2.Init.Mode = UART_MODE_TX_RX;
+  huart2.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart2.Init.OverSampling = UART_OVERSAMPLING_16;
+  huart2.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
+  huart2.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
+  if (HAL_UART_Init(&huart2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN USART2_Init 2 */
+
+  /* USER CODE END USART2_Init 2 */
+
+}
+
+/**
   * @brief GPIO Initialization Function
   * @param None
   * @retval None
@@ -728,69 +805,52 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_0|GPIO_PIN_1, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOC, DIG3_Pin|DIG4_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_0|GPIO_PIN_1|GPIO_PIN_4|GPIO_PIN_5
-                          |GPIO_PIN_6|GPIO_PIN_7|GPIO_PIN_8|GPIO_PIN_13
-                          |GPIO_PIN_14, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOA, A_Pin|B_Pin|E_Pin|F_Pin
+                          |G_Pin|DIG1_Pin|DIG2_Pin|C_Pin
+                          |D_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0|GPIO_PIN_1|GPIO_PIN_2|LD2_Pin
-                          |GPIO_PIN_3|GPIO_PIN_4|GPIO_PIN_6, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOB, LD2_Pin|DIG5_Pin, GPIO_PIN_RESET);
 
-  /*Configure GPIO pins : PC0 PC1 */
-  GPIO_InitStruct.Pin = GPIO_PIN_0|GPIO_PIN_1;
+  /*Configure GPIO pin : B1_Pin */
+  GPIO_InitStruct.Pin = B1_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(B1_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : DIG3_Pin DIG4_Pin */
+  GPIO_InitStruct.Pin = DIG3_Pin|DIG4_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : PA0 PA1 PA4 PA5
-                           PA6 PA7 PA8 PA13
-                           PA14 */
-  GPIO_InitStruct.Pin = GPIO_PIN_0|GPIO_PIN_1|GPIO_PIN_4|GPIO_PIN_5
-                          |GPIO_PIN_6|GPIO_PIN_7|GPIO_PIN_8|GPIO_PIN_13
-                          |GPIO_PIN_14;
+  /*Configure GPIO pins : A_Pin B_Pin E_Pin F_Pin
+                           G_Pin DIG1_Pin DIG2_Pin C_Pin
+                           D_Pin */
+  GPIO_InitStruct.Pin = A_Pin|B_Pin|E_Pin|F_Pin
+                          |G_Pin|DIG1_Pin|DIG2_Pin|C_Pin
+                          |D_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : PA2 PA3 */
-  GPIO_InitStruct.Pin = GPIO_PIN_2|GPIO_PIN_3;
-  GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
-  GPIO_InitStruct.Alternate = GPIO_AF7_USART2;
-  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
-
-  /*Configure GPIO pins : PB0 PB1 PB2 LD2_Pin
-                           PB3 PB4 PB6 */
-  GPIO_InitStruct.Pin = GPIO_PIN_0|GPIO_PIN_1|GPIO_PIN_2|LD2_Pin
-                          |GPIO_PIN_3|GPIO_PIN_4|GPIO_PIN_6;
+  /*Configure GPIO pins : LD2_Pin DIG5_Pin */
+  GPIO_InitStruct.Pin = LD2_Pin|DIG5_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : PA9 PA10 */
-  GPIO_InitStruct.Pin = GPIO_PIN_9|GPIO_PIN_10;
-  GPIO_InitStruct.Mode = GPIO_MODE_AF_OD;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
-  GPIO_InitStruct.Alternate = GPIO_AF4_I2C2;
-  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
-
-  /*Configure GPIO pin : PB8 */
-  GPIO_InitStruct.Pin = GPIO_PIN_8;
+  /*Configure GPIO pin : External_button_Pin */
+  GPIO_InitStruct.Pin = External_button_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
-  GPIO_InitStruct.Pull = GPIO_PULLDOWN;
-  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
-
-  /* EXTI interrupt init*/
-  HAL_NVIC_SetPriority(EXTI9_5_IRQn, 0, 0);
-  HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(External_button_GPIO_Port, &GPIO_InitStruct);
 
 }
 
