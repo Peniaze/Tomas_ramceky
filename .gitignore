@@ -1,0 +1,11 @@
+.cproject
+.mxproject
+.project
+.settings/
+.vscode/
+Debug/
+Drivers/
+*.ld
+*.ioc
+*.launch
+*.docx
