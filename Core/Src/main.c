@@ -21,6 +21,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "flash.h"
 
 /* USER CODE END Includes */
 
@@ -31,12 +32,17 @@ typedef enum
 	init_s,
 	day_set_s,
 	month_set_s,
-	yearhund_set_s,
 	yearunit_set_s,
 	write_init_date_s,
 	update_DIL_s,
 	default_s
 } state_t;
+
+typedef struct{
+	uint32_t Date;
+	uint32_t Month;
+	uint32_t Year;
+} date_t;
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
@@ -48,6 +54,8 @@ typedef enum
 #define LONG_CLICK 3
 #define INTERMEDIATE_CLICK 2
 #define SHORT_CLICK 1
+
+#define RTC_ALARM_EVENT_MASK EXTI_EMR_EM17
 
 // Button config
 
@@ -97,6 +105,8 @@ typedef enum
 //#define debug_disp
 #define hardware_debugger
 //#define interrupt_debug
+//#define rtc_alarm_debug
+//#define flash_read_debug
 
 /* USER CODE END PD */
 
@@ -127,25 +137,40 @@ void HAL_TIM_OC_DelayElapsedCallback(TIM_HandleTypeDef *htim);
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim);
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin);
 static void light_digit(uint16_t digit, uint16_t num);
-static uint16_t calc_DIL(RTC_DateTypeDef *date, RTC_DateTypeDef *meetup_date);
+static uint16_t calc_DIL(date_t *date, date_t *meetup_date);
 static void Configure_Sleep_Mode(uint16_t enable);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
-uint16_t debounce_val = 0;
-uint16_t sleep_mode_counter = 0;
-uint16_t SLEEP_MODE_ENABLE_FLAG = 0;
-uint16_t ENTER_SLEEPMODE_FLAG = 0;
-uint16_t click = 0;
+uint16_t debounce_val = 0;	// Helper variable for button debouncing
+uint16_t sleep_mode_counter = 0;	// Helper variable for counting time till sleep
+uint16_t SLEEP_MODE_ENABLE_FLAG = 0;	// Flag for enabling falling asleep (enables sleep counter)
+uint16_t ENTER_SLEEPMODE_FLAG = 0;	// Flag for actually going to sleep
+uint16_t click = 0;	// States (3 - LONG_CLICK, 2 - INTERMEDIATE_CLICK, 1 - SHORT_CLICK)
+uint16_t shorter_click_flag = 0;	// Flag for cancelling long click after shorter time
 
+void HAL_RTC_AlarmAEventCallback(RTC_HandleTypeDef* hrtc){
+	// Calls every day
+	#ifdef rtc_alarm_debug
+		light_digit(2, 5);
+	#endif
+
+	// Refreshes sleep timer, wakes up and updates the day counter
+	sleep_mode_counter = 0;
+	ENTER_SLEEPMODE_FLAG = 0;
+	Configure_Sleep_Mode(0);
+	return;
+}
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
-#ifdef interrupt_debug
-	light_digit(2, 5);
-#endif
+	// Calls with button push when in sleep mode
+	#ifdef interrupt_debug
+		light_digit(2, 5);
+	#endif
 
+	// Refreshes sleep timer, wakes up and updates the day counter
 	sleep_mode_counter = 0;
 	ENTER_SLEEPMODE_FLAG = 0;
 	Configure_Sleep_Mode(0);
@@ -154,6 +179,9 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 
 static void Configure_Sleep_Mode(uint16_t enable)
 {
+	// Changes the behavior of button when in sleep mode
+	// Sleep mode -> Button functions as GPIO interrupt
+	// Normal mode -> Classic GPIO input
 	GPIO_InitTypeDef GPIO_InitStruct = {0};
 
 	if (enable)
@@ -168,8 +196,8 @@ static void Configure_Sleep_Mode(uint16_t enable)
 		HAL_NVIC_SetPriority(EXT_BUTTON_ITR_GROUP, 0, 0);
 		HAL_NVIC_EnableIRQ(EXT_BUTTON_ITR_GROUP);
 
-		EXTI->IMR |= EXT_BUTTON_ITR_MASK;
-		EXTI->EMR |= EXT_BUTTON_EVENT_MASK;
+		//EXTI->IMR |= EXT_BUTTON_ITR_MASK;
+		EXTI->EMR |= EXT_BUTTON_EVENT_MASK | RTC_ALARM_EVENT_MASK;
 
 		TIM2_INTERRUPT_ENABLE(0);
 		HAL_TIM_Base_Stop(&htim2);
@@ -193,10 +221,18 @@ static void Configure_Sleep_Mode(uint16_t enable)
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
+	// Timer2 callback (only one used)
 	if ((EXT_BUTTON_PORT->IDR &  EXT_BUTTON_PIN))
 	{
-		if (debounce_val > 600)
+		// Long click
+		if (debounce_val > 1500)
 		{
+			click = 3;
+			debounce_val = 0;
+			return;
+		}
+		// Shorter clicks for setting the dates
+		if (shorter_click_flag && debounce_val > 500){
 			click = 3;
 			debounce_val = 0;
 			return;
@@ -204,17 +240,25 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 		debounce_val++;
 		return;
 	}
+	// Intermediate click
+	if (debounce_val > 500){
+		click = 2;
+		debounce_val = 0;
+		return;
+	}
+	// Debouncer
 	if (debounce_val < 10)
 	{
 		if (SLEEP_MODE_ENABLE_FLAG)
 			sleep_mode_counter++;
-		if (sleep_mode_counter > 7000)
+		if (sleep_mode_counter > 2000)
 		{
 			Configure_Sleep_Mode(1);
 		}
 		debounce_val = 0;
 		return;
 	}
+	// Short click (default after debouncing)
 	click = 1;
 	debounce_val = 0;
 	return;
@@ -235,7 +279,7 @@ static uint16_t countLeapYears(uint8_t y, uint8_t m)
 	return years / 4 - years / 100 + years / 400;
 }
 
-static uint16_t calc_DIL(RTC_DateTypeDef *date, RTC_DateTypeDef *meetup_date)
+static uint16_t calc_DIL(date_t *date, date_t *meetup_date)
 {
 	const uint8_t month_days[12] = {31, 28, 31, 30, 31, 30,
 									31, 31, 30, 31, 30, 31};
@@ -261,9 +305,8 @@ static uint16_t calc_DIL(RTC_DateTypeDef *date, RTC_DateTypeDef *meetup_date)
 
 static void light_digit(uint16_t digit, uint16_t num)
 {
-	// Pin PA2, PA3 is connected to uart2 4 hardware debugger
-	// Pins are remapped to PC0, PC1
-	#ifdef hardware_debugger
+	// All pins need to be remapped in definition above when changing layout
+
 	// Turn off all digits
 	HAL_GPIO_WritePin(DIG1_PORT, DIG1_PIN, 1);
 	HAL_GPIO_WritePin(DIG2_PORT, DIG2_PIN, 1);
@@ -272,16 +315,18 @@ static void light_digit(uint16_t digit, uint16_t num)
 	HAL_GPIO_WritePin(DIG5_PORT, DIG5_PIN, 1);
 	switch (digit)
 	{
-		case 1: HAL_GPIO_WritePin(DIG1_PORT, DIG1_PIN, 0); break;
-		case 2: HAL_GPIO_WritePin(DIG2_PORT, DIG2_PIN, 0); break;
-		case 3: HAL_GPIO_WritePin(DIG3_PORT, DIG3_PIN, 0); break;
-		case 4: HAL_GPIO_WritePin(DIG4_PORT, DIG4_PIN, 0); break;
+		// Turn on corresponding digit
+		case 0: HAL_GPIO_WritePin(DIG1_PORT, DIG1_PIN, 0); break;
+		case 1: HAL_GPIO_WritePin(DIG2_PORT, DIG2_PIN, 0); break;
+		case 2: HAL_GPIO_WritePin(DIG3_PORT, DIG3_PIN, 0); break;
+		case 3: HAL_GPIO_WritePin(DIG4_PORT, DIG4_PIN, 0); break;
 		default: HAL_GPIO_WritePin(DIG5_PORT, DIG5_PIN, 0); break;
 	}
 	// Turn off all segments
 	HAL_GPIO_WritePin(SEGMENT_PORT, LIGHT_8, 0);
 	switch (num)
 	{
+		// Turn on corresponding segments
 		case 0:		HAL_GPIO_WritePin(SEGMENT_PORT, LIGHT_0, 1); break;
 		case 1:		HAL_GPIO_WritePin(SEGMENT_PORT, LIGHT_1, 1); break;
 		case 2:		HAL_GPIO_WritePin(SEGMENT_PORT, LIGHT_2, 1); break;
@@ -295,36 +340,6 @@ static void light_digit(uint16_t digit, uint16_t num)
 		case 10:	HAL_GPIO_WritePin(SEGMENT_PORT, 0, 1); break;
 		default:	HAL_GPIO_WritePin(SEGMENT_PORT, LIGHT_0, 1); break;
 	}
-	#else
-
-	// Turn off all digits
-	HAL_GPIO_WritePin(GPIOB, GPIO_PIN_6, 1);
-	HAL_GPIO_WritePin(GPIOA, GPIO_PIN_7 | GPIO_PIN_8 | GPIO_PIN_13 | GPIO_PIN_14, 1);
-	switch (digit)
-	{
-	case 1:		HAL_GPIO_WritePin(GPIOA, GPIO_PIN_7, 0); break;
-	case 2:		HAL_GPIO_WritePin(GPIOA, GPIO_PIN_8, 0); break;
-	case 3:		HAL_GPIO_WritePin(GPIOA, GPIO_PIN_13, 0); break;
-	case 4:		HAL_GPIO_WritePin(GPIOA, GPIO_PIN_14, 0); break;
-	default:	HAL_GPIO_WritePin(GPIOB, GPIO_PIN_6, 0); break;
-	}
-	HAL_GPIO_WritePin(GPIOA, 0b11111111, 0);
-	switch (num)
-	{
-	case 0:		HAL_GPIO_WritePin(GPIOA, 0b1111011, 1); break;
-	case 1:		HAL_GPIO_WritePin(GPIOA, 0b0001010, 1); break;
-	case 2:		HAL_GPIO_WritePin(GPIOA, 0b1011101, 1); break;
-	case 3:		HAL_GPIO_WritePin(GPIOA, 0b0011111, 1); break;
-	case 4:		HAL_GPIO_WritePin(GPIOA, 0b0101110, 1); break;
-	case 5:		HAL_GPIO_WritePin(GPIOA, 0b0110111, 1); break;
-	case 6:		HAL_GPIO_WritePin(GPIOA, 0b1110111, 1); break;
-	case 7:		HAL_GPIO_WritePin(GPIOA, 0b0011010, 1); break;
-	case 8:		HAL_GPIO_WritePin(GPIOA, 0b1111111, 1); break;
-	case 9:		HAL_GPIO_WritePin(GPIOA, 0b0111111, 1); break;
-	case 10:	HAL_GPIO_WritePin(GPIOA, 0b0000000, 1); break;
-	default:	HAL_GPIO_WritePin(GPIOA, 0b1111011, 1); break;
-	}
-	#endif
 }
 
 /* USER CODE END 0 */
@@ -372,86 +387,148 @@ int main(void)
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
 
-	RTC_DateTypeDef date = {0};
-	RTC_DateTypeDef meetup_date = {0};
+	date_t date;	// Stands for current date
+	date.Date = 1;
+	date.Month = 1;
+	date.Year = 0;
+	RTC_DateTypeDef rtc_date;
+	date_t meetup_date = {0};
 
-	state_t cur_state = init_s;
-	uint16_t digits[5];
+	state_t cur_state = init_s;	// Main state machine state
+	uint16_t digits[5];	// Variables to be displayed
 
-	uint16_t FLASH_FLAG = 0;
-	uint16_t GET_MEETUP_DATE_FLAG = 0;
-	uint16_t year = 1940;
-	uint16_t DIL = 0;
+	uint16_t FLASH_FLAG = 0;	// Flag for flashing all digits of display for a second
+	uint16_t GET_MEETUP_DATE_FLAG = 0;	// Flag for determining if setting current or meetup date
+	uint16_t GET_FIRST_DATE = 0;	// Flag for first setting of dates
+	uint16_t DIL = 0;	// Variable for storing difference between dates
+	uint16_t ANIVERSARY_FLAG = 0;	// Flag for lighting up display on anniversary
 
+	uint16_t year = 1940;	// Intermediate variable for setting year
+	uint16_t max_year = 0;	// Variable used to set limits for setting year
 
-	//uint32_t date[] = {31, 12, 2030};
-	//uint32_t Rx_Data[3] = {0};
+	//uint32_t fl_date[3] = {0};
 
-	//Flash_Read_Data(ADR_DATE, Rx_Data, 3);	//read 3 uin32_t number from last page of flash
-	//Flash_Write_Data(ADR_DATE, (uint32_t *)date, 3); //write 3 uin32_t number from last page of flash
-	//Flash_Read_Data(ADR_DATE, Rx_Data, 3);
-
-#ifdef debug_disp
-	while (1)
-	{
-		for (int i = 0; i < 5; i++)
-		{
-			light_digit(i+1, i+5);
-			HAL_Delay(1000);
-		}
+	Flash_Read_Data(ADR_DATE, (uint32_t*)&meetup_date, 2);
+	// Check for original (default) date
+	if (meetup_date.Date == 1 && meetup_date.Month == 1 && meetup_date.Year == 40){
+		GET_FIRST_DATE = 1;
 	}
-#endif
 
-#ifdef clk40khz
-	uint16_t init_DIL = 0;
-#endif
 
-#ifdef debug_RTC
-	RTC_TimeTypeDef time = {0};
-#endif
+	#ifdef flash_read_debug
+		date_t fl_date;
+		fl_date.Date = 31;
+		fl_date.Month = 12;
+		fl_date.Year = 2033;
 
-#ifdef interrupt_debug
-	while (1);
-#endif
+		Flash_Read_Data(ADR_DATE, (uint32_t*)&Rx_Data, 2);	//read 3 uin32_t number from last page of flash
+		while (1){
+			light_digit(1, Rx_Data.Date%10);
+			HAL_Delay(500);
+			light_digit(2, Rx_Data.Month%10);
+			HAL_Delay(500);
+			light_digit(3, Rx_Data.Year%10);
+			HAL_Delay(500);
+			if (click == LONG_CLICK) break;
+		}
+		Flash_Write_Data(ADR_DATE, (uint32_t*)&fl_date, 3); //write 3 uin32_t number from last page of flash
+		Flash_Read_Data(ADR_DATE, (uint32_t*)&Rx_Data, 2);
+		while (1){
+			light_digit(0, Rx_Data.Date%10);
+			HAL_Delay(500);
+			light_digit(1, Rx_Data.Month%10);
+			HAL_Delay(500);
+			light_digit(2, Rx_Data.Year%10);
+			HAL_Delay(500);
+		}
+	#endif
+
+	#ifdef debug_disp
+		while (1)
+		{
+			for (int i = 0; i < 5; i++)
+			{
+				light_digit(i+1, i+5);
+				HAL_Delay(1000);
+			}
+		}
+	#endif
+
+	#ifdef clk40khz
+		uint16_t init_DIL = 0;
+	#endif
+
+	#ifdef debug_RTC
+		RTC_TimeTypeDef time = {0};
+	#endif
+
+	#ifdef interrupt_debug
+		while (1);
+	#endif
+	#ifdef rtc_alarm_debug
+		GPIOB->ODR = 0;
+		GPIOA->ODR = 0;
+		SCB->SCR |= SCB_SCR_SLEEPDEEP_Msk;
+		__disable_irq();
+		__SEV();
+		__WFE();
+		__WFE();
+		SystemClock_Config();
+		SCB->SCR &= ~SCB_SCR_SLEEPDEEP_Msk;
+		__enable_irq();
+		cur_state = update_DIL_s;
+		while (1);
+	#endif
 
 
 	Configure_Sleep_Mode(0);
 	while (1)
 	{
 
-#ifdef debug_RTC
+		#ifdef debug_RTC
 
-		HAL_RTC_GetTime(&hrtc, &time, RTC_FORMAT_BIN);
-		HAL_RTC_GetDate(&hrtc, &date, RTC_FORMAT_BIN);
+			HAL_RTC_GetTime(&hrtc, &time, RTC_FORMAT_BIN);
+			HAL_RTC_GetDate(&hrtc, &rtc_date, RTC_FORMAT_BIN);
 
-		digits[4] = time.SubSeconds % 10;
-		digits[3] = time.SubSeconds / 10;
-		digits[2] = time.Seconds % 10;
-		digits[1] = time.Seconds / 10;
+			digits[4] = time.SubSeconds % 10;
+			digits[3] = time.SubSeconds / 10;
+			digits[2] = time.Seconds % 10;
+			digits[1] = time.Seconds / 10;
 
-		for (int i = 0; i < 5; i++)
-		{
-			light_digit(i, digits[i]);
-			HAL_Delay(1);
-		}
-		continue;
-#endif
+			for (int i = 0; i < 5; i++)
+			{
+				light_digit(i, digits[i]);
+				HAL_Delay(1);
+			}
+			continue;
+		#endif
 
+		// Clear display (nothing is lighting up)
 		for (int i = 0; i < 5; i++)
 			digits[i] = 10;
 
+		// GET_MEETUP_DATE_FLAG determines setting the meetup date vs current date
+
 		switch (cur_state)
 		{
+		// Initial state -> lighting display to ones or eights depending on date setting
 		case init_s:
-			for (int i = 0; i < 5; i++)
-				digits[i] = 8;
+			shorter_click_flag = 1;
+		 	if (!GET_MEETUP_DATE_FLAG){
+				for (int i = 0; i < 5; i++) digits[i] = 8;
+			} else {
+				for (int i = 0; i < 5; i++) digits[i] = 1;
+			}
 			if (click == LONG_CLICK)
 			{
+				FLASH_FLAG = 1;
 				cur_state = day_set_s;
 				click = 0;
 			}
 			break;
+		// State for setting day of the month
 		case day_set_s:
+			shorter_click_flag = 1;
 			switch (click)
 			{
 			case SHORT_CLICK:
@@ -471,6 +548,7 @@ int main(void)
 			digits[4] = date.Date % 10;
 			digits[3] = date.Date / 10;
 			break;
+		// State for setting month
 		case month_set_s:
 			switch (click)
 			{
@@ -483,7 +561,7 @@ int main(void)
 			case LONG_CLICK:
 				if (GET_MEETUP_DATE_FLAG)
 					meetup_date.Month = date.Month;
-				cur_state = yearhund_set_s;
+				cur_state = yearunit_set_s;
 				click = 0;
 				FLASH_FLAG = 1;
 				break;
@@ -491,34 +569,22 @@ int main(void)
 			digits[4] = date.Month % 10;
 			digits[3] = date.Month / 10;
 			break;
-		case yearhund_set_s:
-			year = 1940 + date.Year;
-			switch (click)
-			{
-			case SHORT_CLICK:
-				date.Year += 10;
-				if (date.Year > 240)
-					date.Year = 0;
-				click = 0;
-				break;
-			case LONG_CLICK:
-				FLASH_FLAG = 1;
-				cur_state = yearunit_set_s;
-				date.Year = 0;
-				click = 0;
-				break;
-			}
-			digits[4] = year % 10;
-			digits[3] = (year % 100) / 10;
-			digits[2] = (year % 1000) / 100;
-			digits[1] = (year) / 1000;
-			break;
+		// State for configuring the year of meetup/current date
 		case yearunit_set_s:
+		  	// For current date you can choose between years 2022 and 2050
+			// For meetup date you can choose between years 1980 and 2050
+			if (GET_MEETUP_DATE_FLAG){
+				year = 1980 + date.Year;
+				max_year = 70;
+			} else {
+				year = 2022 + date.Year;
+				max_year = 28;
+			}
 			switch (click)
 			{
 			case SHORT_CLICK:
 				date.Year += 1;
-				if (date.Year > 9)
+				if (date.Year > max_year)
 					date.Year = 0;
 				click = 0;
 				break;
@@ -532,73 +598,142 @@ int main(void)
 				click = 0;
 				break;
 			}
-			digits[4] = date.Year % 10;
+			digits[4] = year % 10;
 			digits[3] = (year % 100) / 10;
 			digits[2] = (year % 1000) / 100;
 			digits[1] = (year) / 1000;
 			break;
+		// Writing the configured current date to RTC
+		// or the meetup date to flash memory
 		case write_init_date_s:
+			shorter_click_flag = 0;
 			if (GET_MEETUP_DATE_FLAG)
 			{
 				GET_MEETUP_DATE_FLAG = 0;
 				cur_state = update_DIL_s;
+				Flash_Write_Data(ADR_DATE, (uint32_t*)&meetup_date, 3);
 				break;
 			}
+			rtc_date.Date = date.Date;
+			rtc_date.Month = date.Month;
+			rtc_date.Year = date.Year;
 			// Initialize RTC
-			HAL_RTC_SetDate(&hrtc, &date, RTC_FORMAT_BIN);
+			HAL_RTC_SetDate(&hrtc, &rtc_date, RTC_FORMAT_BIN);
 			cur_state = update_DIL_s;
-			break;
-		case update_DIL_s:
-			HAL_RTC_GetDate(&hrtc, &date, RTC_FORMAT_BIN);
-			DIL = calc_DIL(&date, &meetup_date);
-
-#ifdef clk40khz
-			if (init_DIL)
-			{
-				DIL = init_DIL + (uint16_t)round(32.768f / 40.0f * calc_DIL(&date, &meetup_date));
-			}
-			else
-			{
-				init_DIL = calc_DIL(&date, &meetup_date);
-				meetup_date = date;
-			}
-#endif
-
-			cur_state = default_s;
-			break;
-		case default_s:
-			if (click == LONG_CLICK)
-			{
+			// First setting of date
+			if (GET_FIRST_DATE){
 				click = 0;
 				FLASH_FLAG = 1;
 				GET_MEETUP_DATE_FLAG = 1;
-				date.Date = 0;
-				date.Month = 0;
+				date.Date = 1;
+				date.Month = 1;
 				date.Year = 0;
 				SLEEP_MODE_ENABLE_FLAG = 0;
 				cur_state = day_set_s;
-
-#ifdef clk40khz
-				init_DIL = 0;
-#endif
+				GET_FIRST_DATE = 0;
 			}
-			SLEEP_MODE_ENABLE_FLAG = 1;
+			break;
+		// State for calculating the date difference
+		case update_DIL_s:
+			HAL_RTC_GetDate(&hrtc, &rtc_date, RTC_FORMAT_BIN);
+			date.Date = rtc_date.Date;
+			date.Month = rtc_date.Month;
+			date.Year = rtc_date.Year;
+			DIL = calc_DIL(&date, &meetup_date);
+			if (date.Date == meetup_date.Date && date.Month == meetup_date.Month){
+				ANIVERSARY_FLAG = 1;
+			} else {
+				ANIVERSARY_FLAG = 0;
+			}
+			FLASH_FLAG = 1;
+
+			#ifdef clk40khz
+				if (init_DIL)
+				{
+					DIL = init_DIL + (uint16_t)round(32.768f / 40.0f * calc_DIL(&date, &meetup_date));
+				}
+				else
+				{
+					init_DIL = calc_DIL(&date, &meetup_date);
+					meetup_date = date;
+				}
+			#endif
+
+			cur_state = default_s;
+			break;
+		// Default state 
+		// Waiting to fall asleep or changing of the meetup/current date
+		case default_s:
 			digits[4] = DIL % 10;
 			digits[3] = (DIL % 100) / 10;
 			digits[2] = (DIL % 1000) / 100;
 			digits[1] = (DIL % 10000) / 1000;
 			digits[0] = (DIL) / 10000;
+			if (ANIVERSARY_FLAG){
+				if (click == SHORT_CLICK){
+					click = 0;
+					ANIVERSARY_FLAG = 0;
+					Configure_Sleep_Mode(1);
+					ENTER_SLEEPMODE_FLAG = 1;
+				}
+				SLEEP_MODE_ENABLE_FLAG = 0;
+			} else {
+				SLEEP_MODE_ENABLE_FLAG = 1;
+			}
+			if (click == LONG_CLICK)
+			{
+				click = 0;
+				FLASH_FLAG = 1;
+				GET_MEETUP_DATE_FLAG = 1;
+				date.Date = 1;
+				date.Month = 1;
+				date.Year = 0;
+				SLEEP_MODE_ENABLE_FLAG = 0;
+				cur_state = day_set_s;
+
+				#ifdef clk40khz
+					init_DIL = 0;
+				#endif
+			} else if (click == INTERMEDIATE_CLICK){
+				click = 0;
+				FLASH_FLAG = 1;
+				GET_MEETUP_DATE_FLAG = 0;
+				date.Date = 1;
+				date.Month = 1;
+				date.Year = 0;
+				SLEEP_MODE_ENABLE_FLAG = 0;
+				cur_state = day_set_s;
+
+			}
 			break;
 		}
 
+		// Light up display for a second
 		if (FLASH_FLAG)
 		{
-			GPIOA->ODR = 0x3ff;
-			GPIOB->ODR = 0;
-			HAL_Delay(500);
+			if (GET_MEETUP_DATE_FLAG){
+				HAL_GPIO_WritePin(SEGMENT_PORT, LIGHT_8, 0);
+				HAL_GPIO_WritePin(SEGMENT_PORT, LIGHT_1, 1);
+				HAL_GPIO_WritePin(DIG1_PORT, DIG1_PIN, 0);
+				HAL_GPIO_WritePin(DIG2_PORT, DIG2_PIN, 0);
+				HAL_GPIO_WritePin(DIG3_PORT, DIG3_PIN, 0);
+				HAL_GPIO_WritePin(DIG4_PORT, DIG4_PIN, 0);
+				HAL_GPIO_WritePin(DIG5_PORT, DIG5_PIN, 0);
+			} else {
+				HAL_GPIO_WritePin(SEGMENT_PORT, LIGHT_8, 1);
+				HAL_GPIO_WritePin(DIG1_PORT, DIG1_PIN, 0);
+				HAL_GPIO_WritePin(DIG2_PORT, DIG2_PIN, 0);
+				HAL_GPIO_WritePin(DIG3_PORT, DIG3_PIN, 0);
+				HAL_GPIO_WritePin(DIG4_PORT, DIG4_PIN, 0);
+				HAL_GPIO_WritePin(DIG5_PORT, DIG5_PIN, 0);
+			}
+			HAL_Delay(1000);
+			// Reset wrongly registered clicks
+			click = 0;
 			FLASH_FLAG = 0;
 		}
 
+		// Lighting display with digits variables
 		for (int i = 0; i < 5; i++)
 		{
 			light_digit(i, digits[i]);
@@ -613,8 +748,8 @@ int main(void)
 			SCB->SCR |= SCB_SCR_SLEEPDEEP_Msk;
 			__disable_irq();
 			__SEV();
-			__WFI();
-			__WFI();
+			__WFE();
+			__WFE();
 			SystemClock_Config();
 			SCB->SCR &= ~SCB_SCR_SLEEPDEEP_Msk;
 			__enable_irq();
@@ -737,12 +872,12 @@ static void MX_RTC_Init(void)
   /** Enable the Alarm A
   */
   sAlarm.AlarmTime.Hours = 0x0;
-  sAlarm.AlarmTime.Minutes = 0x0;
+  sAlarm.AlarmTime.Minutes = 0x5;
   sAlarm.AlarmTime.Seconds = 0x0;
   sAlarm.AlarmTime.SubSeconds = 0x0;
   sAlarm.AlarmTime.DayLightSaving = RTC_DAYLIGHTSAVING_NONE;
   sAlarm.AlarmTime.StoreOperation = RTC_STOREOPERATION_RESET;
-  sAlarm.AlarmMask = RTC_ALARMMASK_NONE;
+  sAlarm.AlarmMask = RTC_ALARMMASK_DATEWEEKDAY;
   sAlarm.AlarmSubSecondMask = RTC_ALARMSUBSECONDMASK_ALL;
   sAlarm.AlarmDateWeekDaySel = RTC_ALARMDATEWEEKDAYSEL_DATE;
   sAlarm.AlarmDateWeekDay = 0x1;
@@ -776,7 +911,7 @@ static void MX_TIM2_Init(void)
 
   /* USER CODE END TIM2_Init 1 */
   htim2.Instance = TIM2;
-  htim2.Init.Prescaler = 100;
+  htim2.Init.Prescaler = 320;
   htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
   htim2.Init.Period = 2000;
   htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
