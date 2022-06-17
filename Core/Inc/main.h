@@ -93,6 +93,7 @@ void Error_Handler(void);
 #define DIG5_GPIO_Port GPIOB
 #define External_button_Pin GPIO_PIN_7
 #define External_button_GPIO_Port GPIOB
+#define External_button_EXTI_IRQn EXTI9_5_IRQn
 /* USER CODE BEGIN Private defines */
 
 /* USER CODE END Private defines */

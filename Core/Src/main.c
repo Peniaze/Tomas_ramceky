@@ -41,9 +41,21 @@ typedef enum
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+
+#define ADR_DATE 0x0800F800 //address (last page , page 31) of flash memory
+
 #define TIM2_INTERRUPT_ENABLE(X) (TIM2->DIER = X)
-#define LONG_CLICK 2
+#define LONG_CLICK 3
+#define INTERMEDIATE_CLICK 2
 #define SHORT_CLICK 1
+
+// Button config
+
+#define EXT_BUTTON_ITR_GROUP EXTI9_5_IRQn
+#define EXT_BUTTON_ITR_MASK EXTI_IMR_IM7
+#define EXT_BUTTON_EVENT_MASK EXTI_EMR_EM7
+#define EXT_BUTTON_PORT GPIOB
+#define EXT_BUTTON_PIN GPIO_PIN_7
 
 // Segment display definitions
 #define DIG1_PIN GPIO_PIN_7
@@ -81,9 +93,10 @@ typedef enum
 #define LIGHT_9 (ASEG_PIN | BSEG_PIN | CSEG_PIN | DSEG_PIN | FSEG_PIN | GSEG_PIN)
 
 //#define clk40khz
-#define debug_RTC
-#define debug_disp
+//#define debug_RTC
+//#define debug_disp
 #define hardware_debugger
+//#define interrupt_debug
 
 /* USER CODE END PD */
 
@@ -129,6 +142,10 @@ uint16_t click = 0;
 
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
+#ifdef interrupt_debug
+	light_digit(2, 5);
+#endif
+
 	sleep_mode_counter = 0;
 	ENTER_SLEEPMODE_FLAG = 0;
 	Configure_Sleep_Mode(0);
@@ -142,17 +159,17 @@ static void Configure_Sleep_Mode(uint16_t enable)
 	if (enable)
 	{
 		/*Configure GPIO pin : PC13 */
-		HAL_GPIO_DeInit(GPIOB, GPIO_PIN_8);
-		GPIO_InitStruct.Pin = GPIO_PIN_8;
+		HAL_GPIO_DeInit(EXT_BUTTON_PORT, EXT_BUTTON_PIN);
+		GPIO_InitStruct.Pin = EXT_BUTTON_PIN;
 		GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
 		GPIO_InitStruct.Pull = GPIO_PULLDOWN;
-		HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+		HAL_GPIO_Init(EXT_BUTTON_PORT, &GPIO_InitStruct);
 		/* EXTI interrupt init*/
-		HAL_NVIC_SetPriority(EXTI15_10_IRQn, 0, 0);
-		HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
+		HAL_NVIC_SetPriority(EXT_BUTTON_ITR_GROUP, 0, 0);
+		HAL_NVIC_EnableIRQ(EXT_BUTTON_ITR_GROUP);
 
-		EXTI->IMR |= EXTI_IMR_IM13;
-		EXTI->EMR |= EXTI_EMR_EM13;
+		EXTI->IMR |= EXT_BUTTON_ITR_MASK;
+		EXTI->EMR |= EXT_BUTTON_EVENT_MASK;
 
 		TIM2_INTERRUPT_ENABLE(0);
 		HAL_TIM_Base_Stop(&htim2);
@@ -162,13 +179,13 @@ static void Configure_Sleep_Mode(uint16_t enable)
 	}
 	SLEEP_MODE_ENABLE_FLAG = 0;
 	/*Configure GPIO pin : PC13 */
-	HAL_GPIO_DeInit(GPIOB, GPIO_PIN_8);
-	GPIO_InitStruct.Pin = GPIO_PIN_8;
+	HAL_GPIO_DeInit(EXT_BUTTON_PORT, EXT_BUTTON_PIN);
+	GPIO_InitStruct.Pin = EXT_BUTTON_PIN;
 	GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
 	GPIO_InitStruct.Pull = GPIO_PULLDOWN;
-	HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+	HAL_GPIO_Init(EXT_BUTTON_PORT, &GPIO_InitStruct);
 
-	HAL_NVIC_DisableIRQ(EXTI15_10_IRQn);
+	HAL_NVIC_DisableIRQ(EXT_BUTTON_ITR_GROUP);
 	TIM2_INTERRUPT_ENABLE(1);
 	HAL_TIM_Base_Start(&htim2);
 	return;
@@ -176,11 +193,11 @@ static void Configure_Sleep_Mode(uint16_t enable)
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
-	if (!(GPIOC->IDR & GPIO_PIN_13))
+	if ((EXT_BUTTON_PORT->IDR &  EXT_BUTTON_PIN))
 	{
 		if (debounce_val > 600)
 		{
-			click = 2;
+			click = 3;
 			debounce_val = 0;
 			return;
 		}
@@ -366,6 +383,14 @@ int main(void)
 	uint16_t year = 1940;
 	uint16_t DIL = 0;
 
+
+	//uint32_t date[] = {31, 12, 2030};
+	//uint32_t Rx_Data[3] = {0};
+
+	//Flash_Read_Data(ADR_DATE, Rx_Data, 3);	//read 3 uin32_t number from last page of flash
+	//Flash_Write_Data(ADR_DATE, (uint32_t *)date, 3); //write 3 uin32_t number from last page of flash
+	//Flash_Read_Data(ADR_DATE, Rx_Data, 3);
+
 #ifdef debug_disp
 	while (1)
 	{
@@ -384,6 +409,11 @@ int main(void)
 #ifdef debug_RTC
 	RTC_TimeTypeDef time = {0};
 #endif
+
+#ifdef interrupt_debug
+	while (1);
+#endif
+
 
 	Configure_Sleep_Mode(0);
 	while (1)
@@ -583,8 +613,8 @@ int main(void)
 			SCB->SCR |= SCB_SCR_SLEEPDEEP_Msk;
 			__disable_irq();
 			__SEV();
-			__WFE();
-			__WFE();
+			__WFI();
+			__WFI();
 			SystemClock_Config();
 			SCB->SCR &= ~SCB_SCR_SLEEPDEEP_Msk;
 			__enable_irq();
@@ -661,6 +691,7 @@ static void MX_RTC_Init(void)
 
   RTC_TimeTypeDef sTime = {0};
   RTC_DateTypeDef sDate = {0};
+  RTC_AlarmTypeDef sAlarm = {0};
 
   /* USER CODE BEGIN RTC_Init 1 */
 
@@ -700,6 +731,23 @@ static void MX_RTC_Init(void)
   sDate.Year = 0x0;
 
   if (HAL_RTC_SetDate(&hrtc, &sDate, RTC_FORMAT_BCD) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /** Enable the Alarm A
+  */
+  sAlarm.AlarmTime.Hours = 0x0;
+  sAlarm.AlarmTime.Minutes = 0x0;
+  sAlarm.AlarmTime.Seconds = 0x0;
+  sAlarm.AlarmTime.SubSeconds = 0x0;
+  sAlarm.AlarmTime.DayLightSaving = RTC_DAYLIGHTSAVING_NONE;
+  sAlarm.AlarmTime.StoreOperation = RTC_STOREOPERATION_RESET;
+  sAlarm.AlarmMask = RTC_ALARMMASK_NONE;
+  sAlarm.AlarmSubSecondMask = RTC_ALARMSUBSECONDMASK_ALL;
+  sAlarm.AlarmDateWeekDaySel = RTC_ALARMDATEWEEKDAYSEL_DATE;
+  sAlarm.AlarmDateWeekDay = 0x1;
+  sAlarm.Alarm = RTC_ALARM_A;
+  if (HAL_RTC_SetAlarm_IT(&hrtc, &sAlarm, RTC_FORMAT_BCD) != HAL_OK)
   {
     Error_Handler();
   }
@@ -851,6 +899,10 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(External_button_GPIO_Port, &GPIO_InitStruct);
+
+  /* EXTI interrupt init*/
+  HAL_NVIC_SetPriority(EXTI9_5_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
 
 }
 
