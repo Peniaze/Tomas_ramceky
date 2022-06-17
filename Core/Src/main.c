@@ -547,6 +547,7 @@ int main(void)
 			}
 			digits[4] = date.Date % 10;
 			digits[3] = date.Date / 10;
+			digits[2] = 0;
 			break;
 		// State for setting month
 		case month_set_s:
@@ -709,29 +710,29 @@ int main(void)
 		}
 
 		// Light up display for a second
-		if (FLASH_FLAG)
-		{
-			if (GET_MEETUP_DATE_FLAG){
-				HAL_GPIO_WritePin(SEGMENT_PORT, LIGHT_8, 0);
-				HAL_GPIO_WritePin(SEGMENT_PORT, LIGHT_1, 1);
-				HAL_GPIO_WritePin(DIG1_PORT, DIG1_PIN, 0);
-				HAL_GPIO_WritePin(DIG2_PORT, DIG2_PIN, 0);
-				HAL_GPIO_WritePin(DIG3_PORT, DIG3_PIN, 0);
-				HAL_GPIO_WritePin(DIG4_PORT, DIG4_PIN, 0);
-				HAL_GPIO_WritePin(DIG5_PORT, DIG5_PIN, 0);
-			} else {
-				HAL_GPIO_WritePin(SEGMENT_PORT, LIGHT_8, 1);
-				HAL_GPIO_WritePin(DIG1_PORT, DIG1_PIN, 0);
-				HAL_GPIO_WritePin(DIG2_PORT, DIG2_PIN, 0);
-				HAL_GPIO_WritePin(DIG3_PORT, DIG3_PIN, 0);
-				HAL_GPIO_WritePin(DIG4_PORT, DIG4_PIN, 0);
-				HAL_GPIO_WritePin(DIG5_PORT, DIG5_PIN, 0);
-			}
-			HAL_Delay(1000);
-			// Reset wrongly registered clicks
-			click = 0;
-			FLASH_FLAG = 0;
-		}
+		//if (FLASH_FLAG)
+		//{
+		//	if (GET_MEETUP_DATE_FLAG){
+		//		HAL_GPIO_WritePin(SEGMENT_PORT, LIGHT_8, 0);
+		//		HAL_GPIO_WritePin(SEGMENT_PORT, LIGHT_1, 1);
+		//		HAL_GPIO_WritePin(DIG1_PORT, DIG1_PIN, 0);
+		//		HAL_GPIO_WritePin(DIG2_PORT, DIG2_PIN, 0);
+		//		HAL_GPIO_WritePin(DIG3_PORT, DIG3_PIN, 0);
+		//		HAL_GPIO_WritePin(DIG4_PORT, DIG4_PIN, 0);
+		//		HAL_GPIO_WritePin(DIG5_PORT, DIG5_PIN, 0);
+		//	} else {
+		//		HAL_GPIO_WritePin(SEGMENT_PORT, LIGHT_8, 1);
+		//		HAL_GPIO_WritePin(DIG1_PORT, DIG1_PIN, 0);
+		//		HAL_GPIO_WritePin(DIG2_PORT, DIG2_PIN, 0);
+		//		HAL_GPIO_WritePin(DIG3_PORT, DIG3_PIN, 0);
+		//		HAL_GPIO_WritePin(DIG4_PORT, DIG4_PIN, 0);
+		//		HAL_GPIO_WritePin(DIG5_PORT, DIG5_PIN, 0);
+		//	}
+		//	HAL_Delay(1000);
+		//	// Reset wrongly registered clicks
+		//	click = 0;
+		//	FLASH_FLAG = 0;
+		//}
 
 		// Lighting display with digits variables
 		for (int i = 0; i < 5; i++)
