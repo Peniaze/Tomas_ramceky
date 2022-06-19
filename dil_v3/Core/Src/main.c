@@ -391,6 +391,10 @@ int main(void)
 	date.Month = 1;
 	date.Year = 0;
 	RTC_DateTypeDef rtc_date;
+	rtc_date.WeekDay = 1;
+	rtc_date.Date = 1;
+	rtc_date.Month = 1;
+	rtc_date.Year = 1;
 	date_t meetup_date = {0};
 
 	state_t cur_state = init_s;	// Main state machine state
