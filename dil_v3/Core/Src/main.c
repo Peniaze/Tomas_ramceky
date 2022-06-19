@@ -150,6 +150,7 @@ uint16_t SLEEP_MODE_ENABLE_FLAG = 0;	// Flag for enabling falling asleep (enable
 uint16_t ENTER_SLEEPMODE_FLAG = 0;	// Flag for actually going to sleep
 uint16_t click = 0;	// States (3 - LONG_CLICK, 2 - INTERMEDIATE_CLICK, 1 - SHORT_CLICK)
 uint16_t shorter_click_flag = 0;	// Flag for cancelling long click after shorter time
+uint32_t num = 0; // temporary variable for DIL
 
 void HAL_RTC_AlarmAEventCallback(RTC_HandleTypeDef* hrtc){
 	// Calls every day
@@ -234,13 +235,13 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 		return;
 	}
 	// Intermediate click
-	if ((debounce_val < 800) && (debounce_val > 200)){
+	if ((debounce_val <= 600) && (debounce_val > 100)){
 		click = 2;
 		debounce_val = 0;
 		return;
 	}
 	// Long click
-	if (debounce_val > 1000)
+	if (debounce_val > 600)
 	{
 		click = 3;
 		debounce_val = 0;
@@ -667,11 +668,19 @@ int main(void)
 		// Default state 
 		// Waiting to fall asleep or changing of the meetup/current date
 		case default_s:
-			digits[4] =   DIL % 10;
-			digits[3] = ((DIL % 100) / 10 ) == 0 ? 10 : (DIL % 100) / 10;
-			digits[2] = ((DIL % 1000) / 100 )  == 0 ? 10 : (DIL % 1000) / 100;
-			digits[1] = ((DIL % 10000) / 1000 ) == 0 ? 10 : (DIL % 10000) / 1000;
-			digits[0] = (DIL / 10000 ) == 0 ? 10 :  DIL / 10000;
+			num = DIL;
+			for(int len = 5; len > 0; len--)	//light off digits before number start
+			{
+				if(num == 0)
+				{
+				   digits[len-1] = 10;
+				   continue;
+				}
+				digits[len-1] = num % 10;
+
+				num = num / 10;
+			}
+
 			if (ANIVERSARY_FLAG){
 				if (click == SHORT_CLICK){
 					click = 0;
