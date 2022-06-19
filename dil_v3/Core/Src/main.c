@@ -692,7 +692,7 @@ int main(void)
 				date.Month = 1;
 				date.Year = 0;
 				SLEEP_MODE_ENABLE_FLAG = 0;
-				cur_state = day_set_s;
+				cur_state = init_s;
 
 				#ifdef clk40khz
 					init_DIL = 0;
@@ -705,7 +705,7 @@ int main(void)
 				date.Month = 1;
 				date.Year = 0;
 				SLEEP_MODE_ENABLE_FLAG = 0;
-				cur_state = day_set_s;
+				cur_state = init_s;
 
 			}
 			break;
