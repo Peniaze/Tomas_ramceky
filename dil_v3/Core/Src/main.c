@@ -48,7 +48,7 @@ typedef struct{
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 
-#define ADR_DATE 0x0800F810 //address (last page , page 31) of flash memory
+#define ADR_DATE 0x0800F800 //address (last page , page 31) of flash memory
 
 #define TIM2_INTERRUPT_ENABLE(X) (TIM2->DIER = X)
 #define LONG_CLICK 3
@@ -151,17 +151,18 @@ uint16_t ENTER_SLEEPMODE_FLAG = 0;	// Flag for actually going to sleep
 uint16_t click = 0;	// States (3 - LONG_CLICK, 2 - INTERMEDIATE_CLICK, 1 - SHORT_CLICK)
 uint16_t shorter_click_flag = 0;	// Flag for cancelling long click after shorter time
 uint32_t num = 0; // temporary variable for DIL
+uint32_t test_day = 0;
 
 void HAL_RTC_AlarmAEventCallback(RTC_HandleTypeDef* hrtc){
 	// Calls every day
 	#ifdef rtc_alarm_debug
 		light_digit(2, 5);
 	#endif
-
 	// Refreshes sleep timer, wakes up and updates the day counter
 	sleep_mode_counter = 0;
 	ENTER_SLEEPMODE_FLAG = 0;
 	Configure_Sleep_Mode(0);
+	test_day = 1;
 	return;
 }
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
@@ -645,8 +646,15 @@ int main(void)
 			date.Year = rtc_date.Year;
 			DIL = calc_DIL(&date, &meetup_date);
 			if (date.Date == meetup_date.Date && date.Month == meetup_date.Month){
+				if(test_day == 1){
+					test_day = date.Date;
 				ANIVERSARY_FLAG = 1;
+				}
+				else{
+					ANIVERSARY_FLAG = 0;
+				}
 			} else {
+				test_day = 0;
 				ANIVERSARY_FLAG = 0;
 			}
 			FLASH_FLAG = 1;
